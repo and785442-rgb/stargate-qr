@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0">
+
+  <title>StarGate QR</title>
+
+  <script src="https://unpkg.com/html5-qrcode"
+          type="text/javascript"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background: #111;
+      color: white;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 430px;
+      background: #1b1b1b;
+      border-radius: 22px;
+      padding: 24px;
+      text-align: center;
+      box-shadow: 0 12px 40px rgba(0,0,0,.6);
+    }
+
+    .logo {
+      font-size: 30px;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+
+    .logo .star {
+      color: #fff;
+    }
+
+    .logo .gate {
+      color: #ff8a00;
+    }
+
+    .subtitle {
+      margin: 8px 0 20px;
+      color: #aaa;
+      font-size: 15px;
+    }
+
+    #reader {
+      width: 100%;
+      overflow: hidden;
+      border-radius: 16px;
+      background: #000;
+    }
+
+    #reader video {
+      border-radius: 16px;
+    }
+
+    .status {
+      min-height: 45px;
+      margin-top: 16px;
+      padding: 10px;
+      color: #ff9d2e;
+      font-size: 14px;
+    }
+
+    .success {
+      color: #55d66b;
+    }
+
+    .error {
+      color: #ff5555;
+    }
+
+    button {
+      display: none;
+      margin-top: 10px;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 12px;
+      background: #ff8a00;
+      color: #111;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    .footer {
+      margin-top: 18px;
+      color: #666;
+      font-size: 12px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="container">
+
+    <div class="logo">
+      <span class="star">✨ Star</span><span class="gate">Gate</span>
+    </div>
+
+    <div class="subtitle">
+      Scanner QR StarPass
+    </div>
+
+    <div id="reader"></div>
+
+    <div id="status" class="status">
+      Initialisation de la caméra...
+    </div>
+
+    <button id="retry">
+      Relancer la caméra
+    </button>
+
+    <div class="footer">
+      WiFiStar • StarPass
+    </div>
+
+  </div>
+
+
+  <script>
+
+    let scanner = null;
+    let scanning = false;
+
+    const statusBox =
+      document.getElementById("status");
+
+    const retryButton =
+      document.getElementById("retry");
+
+
+    /*
+     * Vérifie que le QR contient bien
+     * une URL MikroTik /login avec
+     * username + password.
+     */
+    function isStarPassQR(text) {
+
+      try {
+
+        const url = new URL(text);
+
+        const hasLogin =
+          url.pathname === "/login";
+
+        const hasUsername =
+          url.searchParams.has("username");
+
+        const hasPassword =
+          url.searchParams.has("password");
+
+        return (
+          hasLogin &&
+          hasUsername &&
+          hasPassword
+        );
+
+      } catch (error) {
+
+        return false;
+
+      }
+
+    }
+
+
+    /*
+     * Traitement du QR détecté.
+     */
+    async function qrSuccess(decodedText) {
+
+      if (scanning === false) {
+        return;
+      }
+
+      /*
+       * Vérification du QR.
+       */
+      if (!isStarPassQR(decodedText)) {
+
+        statusBox.className =
+          "status error";
+
+        statusBox.textContent =
+          "QR non reconnu. Utilise un QR StarPass.";
+
+        return;
+      }
+
+
+      try {
+
+        const url =
+          new URL(decodedText);
+
+
+        /*
+         * Sécurité :
+         * on accepte uniquement http/https.
+         */
+        if (
+          url.protocol !== "http:" &&
+          url.protocol !== "https:"
+        ) {
+
+          throw new Error(
+            "Protocole non autorisé"
+          );
+
+        }
+
+
+        /*
+         * Vérification des données.
+         */
+        const username =
+          url.searchParams.get("username");
+
+        const password =
+          url.searchParams.get("password");
+
+
+        if (!username || !password) {
+
+          throw new Error(
+            "Identifiants absents"
+          );
+
+        }
+
+
+        scanning = false;
+
+
+        statusBox.className =
+          "status success";
+
+        statusBox.textContent =
+          "QR StarPass reconnu. Connexion...";
+
+
+        /*
+         * Arrêt de la caméra avant
+         * de rediriger.
+         */
+        if (scanner) {
+
+          try {
+
+            await scanner.stop();
+
+          } catch (e) {}
+
+        }
+
+
+        /*
+         * IMPORTANT :
+         *
+         * On ouvre exactement l'adresse
+         * contenue dans le QR.
+         *
+         * Aujourd'hui :
+         * wf-star.net
+         *
+         * Plus tard :
+         * wifistar.area
+         *
+         * Aucun changement du scanner
+         * ne sera nécessaire.
+         */
+        window.location.href =
+          url.toString();
+
+
+      } catch (error) {
+
+        statusBox.className =
+          "status error";
+
+        statusBox.textContent =
+          "Le QR contient une adresse invalide.";
+
+      }
+
+    }
+
+
+    /*
+     * Erreurs de lecture QR.
+     *
+     * On ne montre rien ici pour éviter
+     * d'afficher une erreur à chaque image
+     * où aucun QR n'est détecté.
+     */
+    function qrError(decodedResult) {
+      // Rien à afficher.
+    }
+
+
+    /*
+     * Démarrage du scanner.
+     */
+    async function startScanner() {
+
+      retryButton.style.display =
+        "none";
+
+      statusBox.className =
+        "status";
+
+      statusBox.textContent =
+        "Demande d'accès à la caméra...";
+
+
+      try {
+
+        scanner =
+          new Html5Qrcode("reader");
+
+
+        const cameras =
+          await Html5Qrcode.getCameras();
+
+
+        if (
+          !cameras ||
+          cameras.length === 0
+        ) {
+
+          throw new Error(
+            "Aucune caméra trouvée."
+          );
+
+        }
+
+
+        /*
+         * On privilégie la caméra arrière.
+         */
+        let cameraId =
+          cameras[cameras.length - 1].id;
+
+
+        for (const camera of cameras) {
+
+          const label =
+            (camera.label || "")
+              .toLowerCase();
+
+          if (
+            label.includes("back") ||
+            label.includes("rear") ||
+            label.includes("arrière")
+          ) {
+
+            cameraId =
+              camera.id;
+
+            break;
+
+          }
+
+        }
+
+
+        scanning = true;
+
+
+        await scanner.start(
+
+          cameraId,
+
+          {
+            fps: 10,
+
+            qrbox: {
+              width: 250,
+              height: 250
+            }
+
+          },
+
+          qrSuccess,
+
+          qrError
+
+        );
+
+
+        statusBox.className =
+          "status";
+
+        statusBox.textContent =
+          "Présente le QR StarPass devant la caméra.";
+
+
+      } catch (error) {
+
+        scanning = false;
+
+        statusBox.className =
+          "status error";
+
+        statusBox.textContent =
+          "Impossible d'accéder à la caméra. Autorise la caméra puis réessaie.";
+
+        retryButton.style.display =
+          "inline-block";
+
+      }
+
+    }
+
+
+    /*
+     * Bouton de nouvelle tentative.
+     */
+    retryButton.addEventListener(
+      "click",
+      function() {
+
+        if (scanner) {
+
+          try {
+
+            scanner.clear();
+
+          } catch (e) {}
+
+        }
+
+        scanner = null;
+
+        startScanner();
+
+      }
+    );
+
+
+    /*
+     * Lancement automatique.
+     */
+    window.addEventListener(
+      "load",
+      startScanner
+    );
+
+  </script>
+
+</body>
+</html>
