@@ -8,14 +8,15 @@
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:#111;color:#fff;font-family:Arial,sans-serif}
 .card{width:min(94vw,430px);background:#1b1b1b;border-radius:22px;padding:24px;text-align:center;box-shadow:0 12px 40px #0008}
-h1{margin:0 0 6px;font-size:30px}
-.star{color:#fff}.gate{color:#ff8a00}
+h1{margin:0 0 6px;font-size:30px}.star{color:#fff}.gate{color:#ff8a00}
 p{color:#aaa;margin:8px 0 18px}
 #camera{width:100%;aspect-ratio:4/3;object-fit:cover;background:#000;border-radius:16px}
-#status{min-height:42px;margin-top:14px;color:#ff9d2e;font-size:14px}
+#status{min-height:42px;margin-top:14px;color:#ff9d2e;font-size:14px;line-height:1.4}
 button{border:0;border-radius:12px;padding:12px 18px;background:#ff8a00;color:#111;font-weight:bold;cursor:pointer;margin:5px}
-#start{display:none}
+#start,#chrome{display:none}.secondary{background:#333;color:#fff}
 .note{font-size:12px;color:#666;margin-top:14px}
+.help{display:none;margin-top:14px;padding:14px;border-radius:14px;background:#252525;color:#ccc;font-size:13px;line-height:1.45}
+.help strong{color:#ff9d2e}
 </style>
 </head>
 <body>
@@ -25,16 +26,35 @@ button{border:0;border-radius:12px;padding:12px 18px;background:#ff8a00;color:#1
   <video id="camera" playsinline autoplay muted></video>
   <div id="status">Préparation de la caméra…</div>
   <button id="start">Activer la caméra</button>
-  <div class="note">Le scan est effectué directement dans le navigateur.</div>
+  <button id="chrome" class="secondary">Ouvrir dans Chrome</button>
+  <div id="help" class="help">
+    <strong>Ce navigateur ne permet pas le scan QR.</strong><br>
+    Ouvre cette page avec <strong>Google Chrome</strong>, puis autorise l'accès à la caméra.<br><br>
+    Si le bouton ne fonctionne pas, utilise le menu du navigateur :<br>
+    <strong>⋮ → Ouvrir dans Chrome</strong>.
+  </div>
+  <div class="note">Le QR StarPass est lu directement par le téléphone.</div>
 </div>
 
 <script>
 const video=document.getElementById("camera");
 const status=document.getElementById("status");
 const startBtn=document.getElementById("start");
-let stream=null, timer=null, busy=false;
+const chromeBtn=document.getElementById("chrome");
+const help=document.getElementById("help");
+let stream=null,timer=null,busy=false;
 
-function msg(t, cls=""){status.textContent=t;status.style.color=cls==="ok"?"#55d66b":cls==="err"?"#ff5555":"#ff9d2e";}
+function msg(t,cls=""){
+  status.textContent=t;
+  status.style.color=cls==="ok"?"#55d66b":cls==="err"?"#ff5555":"#ff9d2e";
+}
+
+function showBrowserHelp(){
+  startBtn.style.display="none";
+  chromeBtn.style.display="inline-block";
+  help.style.display="block";
+  msg("Scanner QR non disponible dans ce navigateur.","err");
+}
 
 function validStarPass(text){
   try{
@@ -48,44 +68,54 @@ function validStarPass(text){
 
 async function openLogin(text){
   if(busy)return;
-  if(!validStarPass(text)){msg("QR non reconnu : utilise un QR StarPass.","err");return;}
+  if(!validStarPass(text)){
+    msg("QR non reconnu : utilise un QR StarPass.","err");
+    return;
+  }
   busy=true;
   msg("QR StarPass reconnu. Connexion…","ok");
-  if(stream) stream.getTracks().forEach(t=>t.stop());
-  if(timer) clearInterval(timer);
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  if(timer)clearInterval(timer);
   location.href=new URL(text).toString();
 }
 
 async function scan(){
+  help.style.display="none";
+  chromeBtn.style.display="none";
+
+  if(!window.isSecureContext){
+    msg("Connexion caméra sécurisée requise. Ouvre la page avec HTTPS.","err");
+    showBrowserHelp();
+    return;
+  }
+
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    showBrowserHelp();
+    return;
+  }
+
   if(!("BarcodeDetector" in window)){
-    msg("Ce navigateur ne prend pas en charge le scan QR natif. Essaie Chrome sur Android.","err");
-    startBtn.style.display="inline-block";
+    showBrowserHelp();
     return;
   }
 
   let detector;
-  try{
-    detector=new BarcodeDetector({formats:["qr_code"]});
-  }catch(e){
-    msg("Le scanner QR natif n'est pas disponible sur ce navigateur.","err");
-    startBtn.style.display="inline-block";
-    return;
-  }
+  try{detector=new BarcodeDetector({formats:["qr_code"]});}
+  catch(e){showBrowserHelp();return;}
 
   try{
     stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:{ideal:"environment"}},
-      audio:false
+      video:{facingMode:{ideal:"environment"}},audio:false
     });
     video.srcObject=stream;
     await video.play();
     msg("Présente le QR StarPass devant la caméra.");
 
     timer=setInterval(async()=>{
-      if(busy || video.readyState<2)return;
+      if(busy||video.readyState<2)return;
       try{
         const codes=await detector.detect(video);
-        if(codes.length && codes[0].rawValue) await openLogin(codes[0].rawValue);
+        if(codes.length&&codes[0].rawValue)await openLogin(codes[0].rawValue);
       }catch(e){}
     },250);
   }catch(e){
@@ -94,9 +124,14 @@ async function scan(){
   }
 }
 
-startBtn.onclick=()=>{
-  startBtn.style.display="none";
-  scan();
+startBtn.onclick=()=>{startBtn.style.display="none";scan();};
+
+chromeBtn.onclick=()=>{
+  // Android : demande à Chrome d'ouvrir la même page.
+  // Si le navigateur bloque intent://, l'utilisateur peut utiliser son menu "Ouvrir dans Chrome".
+  const url=location.href;
+  const intentUrl="intent://"+url.replace(/^https?:\/\//,"")+"#Intent;scheme=https;package=com.android.chrome;end";
+  window.location.href=intentUrl;
 };
 
 window.addEventListener("load",scan);
