@@ -13,7 +13,7 @@ p{color:#aaa;margin:8px 0 18px}
 #camera{width:100%;aspect-ratio:4/3;object-fit:cover;background:#000;border-radius:16px}
 #status{min-height:42px;margin-top:14px;color:#ff9d2e;font-size:14px;line-height:1.4}
 button{border:0;border-radius:12px;padding:12px 18px;background:#ff8a00;color:#111;font-weight:bold;cursor:pointer;margin:5px}
-#start,#chrome{display:none}.secondary{background:#333;color:#fff}
+#start,#chrome,#result,#copy{display:none}.secondary{background:#333;color:#fff}.result{margin-top:14px;padding:12px;border-radius:12px;background:#252525;color:#ccc;font-size:12px;word-break:break-all}.result strong{color:#ff9d2e}.copyok{color:#55d66b!important}
 .note{font-size:12px;color:#666;margin-top:14px}
 .help{display:none;margin-top:14px;padding:14px;border-radius:14px;background:#252525;color:#ccc;font-size:13px;line-height:1.45}
 .help strong{color:#ff9d2e}
@@ -27,6 +27,8 @@ button{border:0;border-radius:12px;padding:12px 18px;background:#ff8a00;color:#1
   <div id="status">Préparation de la caméra…</div>
   <button id="start">Activer la caméra</button>
   <button id="chrome" class="secondary">Ouvrir dans Chrome</button>
+  <div id="result" class="result">QR détecté : <strong id="resultText"></strong></div>
+  <button id="copy" class="secondary">📋 Copier l’URL</button>
   <div id="help" class="help">
     <strong>Ce navigateur ne permet pas le scan QR.</strong><br>
     Ouvre cette page avec <strong>Google Chrome</strong>, puis autorise l'accès à la caméra.<br><br>
@@ -42,7 +44,10 @@ const status=document.getElementById("status");
 const startBtn=document.getElementById("start");
 const chromeBtn=document.getElementById("chrome");
 const help=document.getElementById("help");
-let stream=null,timer=null,busy=false;
+const result=document.getElementById("result");
+const resultText=document.getElementById("resultText");
+const copyBtn=document.getElementById("copy");
+let stream=null,timer=null,busy=false,detectedUrl="",redirectTimer=null;
 
 function msg(t,cls=""){
   status.textContent=t;
@@ -73,10 +78,14 @@ async function openLogin(text){
     return;
   }
   busy=true;
-  msg("QR StarPass reconnu. Connexion…","ok");
+  detectedUrl=new URL(text).toString();
+  msg("QR StarPass reconnu. Ouverture de StarGate…","ok");
   if(stream)stream.getTracks().forEach(t=>t.stop());
   if(timer)clearInterval(timer);
-  location.href=new URL(text).toString();
+  resultText.textContent=detectedUrl;
+  result.style.display="block";
+  copyBtn.style.display="inline-block";
+  redirectTimer=setTimeout(()=>{ location.href=detectedUrl; },1500);
 }
 
 async function scan(){
@@ -125,6 +134,19 @@ async function scan(){
 }
 
 startBtn.onclick=()=>{startBtn.style.display="none";scan();};
+
+copyBtn.onclick=async()=>{
+  if(!detectedUrl)return;
+  try{
+    await navigator.clipboard.writeText(detectedUrl);
+    if(redirectTimer)clearTimeout(redirectTimer);
+    msg("URL copiée. Colle-la dans Chrome pour ouvrir StarGate.","ok");
+    copyBtn.textContent="✓ URL copiée";
+    copyBtn.classList.add("copyok");
+  }catch(e){
+    msg("Impossible de copier automatiquement. Maintiens le doigt sur l’URL pour la copier.","err");
+  }
+};
 
 chromeBtn.onclick=()=>{
   // Android : demande à Chrome d'ouvrir la même page.
